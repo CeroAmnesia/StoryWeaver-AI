@@ -1,0 +1,7 @@
+{
+  "name": "StoryWeaver AI",
+  "description": "A visual storytelling platform enabling users to create short 90s videos from stories using Gemini 2.5 Live, Veo Video Generation, and High-Fidelity Image Generation.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
