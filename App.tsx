@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { StoryEditor } from './components/StoryEditor';
 import { VisualGenerator } from './components/VisualGenerator';
 import { PreviewPlayer } from './components/PreviewPlayer';
-import { Scene, AspectRatio, AppStep, StoryState, Language, StoryMetadata, SubtitleStyle, SubtitleAnimation } from './types';
+import { Scene, AspectRatio, AppStep, StoryState, Language, StoryMetadata, SubtitleStyle, SubtitleAnimation, ProjectSettings } from './types';
 import { translations } from './utils/translations';
 import { promptVeoKeySelection } from './services/geminiService';
 
@@ -11,30 +11,30 @@ function App() {
   const [step, setStep] = useState<AppStep>(AppStep.Drafting);
   const [language, setLanguage] = useState<Language>('es');
   const [autoRenderTrigger, setAutoRenderTrigger] = useState(false); 
-  const [enableAutoAdvance, setEnableAutoAdvance] = useState(true); 
-  const [enableAutoDownload, setEnableAutoDownload] = useState(true); 
   
-  // Lifted State for Global Configuration (Visuals + Audio)
-  const [selectedVoice, setSelectedVoice] = useState('Fenrir');
-  const [subStyle, setSubStyle] = useState<SubtitleStyle>({
-    visible: true,
-    fontFamily: "'Roboto', sans-serif", 
-    fontSize: 1.0,
-    textColor: '#FFFFFF',
-    activeTextColor: '#FBBF24', 
-    outlineColor: '#000000',
-    strokeWidth: 4,
-    backgroundColor: '#000000',
-    backgroundOpacity: 0.0,
-    verticalPosition: 85, // Default to bottom
-    showFutureText: true,
-    animation: SubtitleAnimation.Pop
+  // Estado global del proyecto y configuraciones
+  const [settings, setSettings] = useState<ProjectSettings>({
+    autoAdvance: true,
+    autoDownload: true,
+    selectedVoice: 'Fenrir',
+    bgMusicFile: null,
+    bgMusicVolume: 0.2,
+    narrationVolume: 1.0,
+    subtitleStyle: {
+      visible: true,
+      fontFamily: "'Archivo Black', sans-serif", 
+      fontSize: 1.0,
+      textColor: '#FFFFFF',
+      activeTextColor: '#FBBF24', 
+      outlineColor: '#000000',
+      strokeWidth: 4,
+      backgroundColor: '#000000',
+      backgroundOpacity: 0.0,
+      verticalPosition: 85,
+      showFutureText: true,
+      animation: SubtitleAnimation.Typewriter
+    }
   });
-
-  // Audio State
-  const [bgMusicFile, setBgMusicFile] = useState<File | null>(null);
-  const [bgMusicVolume, setBgMusicVolume] = useState(0.1);
-  const [narrationVolume, setNarrationVolume] = useState(1.0);
 
   const [state, setState] = useState<StoryState>({
     title: 'New Project',
@@ -80,6 +80,10 @@ function App() {
     }));
   };
 
+  const handleUpdateThumbnail = (url: string) => {
+    setState(prev => ({ ...prev, thumbnailUrl: url }));
+  };
+
   const handleDeleteScene = (id: string) => {
     setState(prev => ({
       ...prev,
@@ -92,9 +96,12 @@ function App() {
       setStep(AppStep.Preview);
   };
 
+  const updateSettings = (updates: Partial<ProjectSettings>) => {
+    setSettings(prev => ({ ...prev, ...updates }));
+  };
+
   return (
     <div className="min-h-screen text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
-      {/* Header */}
       <header className="fixed w-full top-0 z-50 transition-all duration-300 border-b border-white/5 bg-[#020617]/80 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3 group cursor-default">
@@ -102,7 +109,7 @@ function App() {
                 <div className="absolute inset-0 bg-gradient-to-tr from-violet-600 to-indigo-500 rounded-lg blur opacity-60 group-hover:opacity-100 transition duration-500"></div>
                 <div className="relative bg-gradient-to-tr from-violet-600 to-indigo-600 w-9 h-9 rounded-lg flex items-center justify-center shadow-lg border border-white/10">
                   <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
                   </svg>
                 </div>
              </div>
@@ -112,7 +119,6 @@ function App() {
           </div>
           
           <div className="flex items-center gap-3 md:gap-6">
-             {/* API Key Button */}
              <button 
                onClick={() => promptVeoKeySelection()}
                className="flex items-center space-x-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-full transition-all border border-amber-500/20"
@@ -124,7 +130,6 @@ function App() {
                 <span className="hidden sm:inline">{t.header.apiKey}</span>
              </button>
 
-             {/* Language Selector */}
              <div className="relative group">
                 <button className="flex items-center space-x-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors px-2 py-1">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -139,7 +144,6 @@ function App() {
                 </div>
              </div>
 
-             {/* Navigation Pills */}
              <nav className="flex bg-white/5 p-1 rounded-full border border-white/5 backdrop-blur-md">
                {[
                  { id: AppStep.Drafting, label: t.header.stepDrafting },
@@ -166,20 +170,17 @@ function App() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-28 relative z-0">
-        
-        {/* Ambient background glow */}
         <div className="fixed top-20 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-indigo-600/10 rounded-full blur-[120px] -z-10 pointer-events-none"></div>
 
         {step === AppStep.Drafting && (
           <StoryEditor 
             language={language}
             onScenesGenerated={handleScenesGenerated}
-            enableAutoAdvance={enableAutoAdvance}
-            onToggleAutoAdvance={setEnableAutoAdvance}
-            enableAutoDownload={enableAutoDownload}
-            onToggleAutoDownload={setEnableAutoDownload}
+            enableAutoAdvance={settings.autoAdvance}
+            onToggleAutoAdvance={(val) => updateSettings({ autoAdvance: val })}
+            enableAutoDownload={settings.autoDownload}
+            onToggleAutoDownload={(val) => updateSettings({ autoDownload: val })}
           />
         )}
 
@@ -191,22 +192,21 @@ function App() {
             onUpdateScene={handleUpdateScene}
             onDeleteScene={handleDeleteScene}
             onComplete={handleVisualsComplete} 
+            onCancel={() => setStep(AppStep.Drafting)}
             visualStyle={state.visualStyle} 
             metadata={state.metadata} 
-            autoAdvanceEnabled={enableAutoAdvance} 
-            autoDownloadEnabled={enableAutoDownload}
-            // Pass global audio/sub state
-            selectedVoice={selectedVoice}
-            onVoiceChange={setSelectedVoice}
-            subStyle={subStyle}
-            onSubStyleChange={setSubStyle}
-            // Audio Props
-            bgMusicFile={bgMusicFile}
-            onMusicChange={setBgMusicFile}
-            bgMusicVolume={bgMusicVolume}
-            onMusicVolChange={setBgMusicVolume}
-            narrationVolume={narrationVolume}
-            onNarrationVolChange={setNarrationVolume}
+            autoAdvanceEnabled={settings.autoAdvance} 
+            selectedVoice={settings.selectedVoice}
+            onVoiceChange={(val) => updateSettings({ selectedVoice: val })}
+            subStyle={settings.subtitleStyle}
+            onSubStyleChange={(val) => updateSettings({ subtitleStyle: val })}
+            bgMusicFile={settings.bgMusicFile}
+            onMusicChange={(val) => updateSettings({ bgMusicFile: val })}
+            bgMusicVolume={settings.bgMusicVolume}
+            onMusicVolChange={(val) => updateSettings({ bgMusicVolume: val })}
+            thumbnailUrl={state.thumbnailUrl}
+            onUpdateThumbnail={handleUpdateThumbnail}
+            rawStory={state.rawStory}
           />
         )}
 
@@ -221,14 +221,14 @@ function App() {
             initialOutro={state.outroUrl}
             initialOutroType={state.outroType}
             projectTitle={state.rawStory}
-            suggestedVoice={state.metadata?.recommendedVoice}
-            // Pass the pre-configured state
-            initialSelectedVoice={selectedVoice}
-            initialSubStyle={subStyle}
-            // Audio State
-            initialBgMusicFile={bgMusicFile}
-            initialBgMusicVolume={bgMusicVolume}
-            initialNarrationVolume={narrationVolume}
+            initialSelectedVoice={settings.selectedVoice}
+            initialSubStyle={settings.subtitleStyle}
+            initialBgMusicFile={settings.bgMusicFile}
+            initialBgMusicVolume={settings.bgMusicVolume}
+            onMusicVolChange={(val) => updateSettings({ bgMusicVolume: val })}
+            initialNarrationVolume={settings.narrationVolume}
+            onNarrationVolChange={(val) => updateSettings({ narrationVolume: val })}
+            metadata={state.metadata}
           />
         )}
       </main>

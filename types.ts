@@ -67,6 +67,7 @@ export interface StoryState {
   rawStory: string;
   scenes: Scene[];
   audioUrl?: string;
+  thumbnailUrl?: string; // Nueva propiedad para la miniatura
   totalDuration: number;
   targetDuration: number; 
   aspectRatio: AspectRatio;
@@ -90,6 +91,16 @@ export interface SubtitleStyle {
   verticalPosition: number; 
   showFutureText: boolean; 
   animation: SubtitleAnimation; 
+}
+
+export interface ProjectSettings {
+  autoAdvance: boolean;
+  autoDownload: boolean;
+  selectedVoice: string;
+  bgMusicFile: File | null;
+  bgMusicVolume: number;
+  narrationVolume: number;
+  subtitleStyle: SubtitleStyle;
 }
 
 export enum AppStep {

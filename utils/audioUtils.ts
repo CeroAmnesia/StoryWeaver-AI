@@ -1,3 +1,4 @@
+
 export function decodeBase64(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -18,113 +19,149 @@ export function encodeBase64(bytes: Uint8Array): string {
 }
 
 /**
- * Decodes Raw PCM 16-bit audio data.
- * Used primarily for Live API streams which send raw chunks.
+ * POTENCIALIZADO: Concatenación con Crossfade Seamless
+ * Fundido cruzado de 40ms para evitar clics y asegurar fluidez humana.
  */
+export function concatenateAudioBuffers(buffers: AudioBuffer[], ctx: AudioContext): AudioBuffer {
+  if (buffers.length === 0) return ctx.createBuffer(1, 1, ctx.sampleRate);
+  
+  const fadeDuration = 0.04; 
+  const fadeSamples = Math.floor(fadeDuration * ctx.sampleRate);
+  
+  let totalLength = buffers[0].length;
+  for (let i = 1; i < buffers.length; i++) {
+    totalLength += (buffers[i].length - fadeSamples);
+  }
+  
+  const result = ctx.createBuffer(buffers[0].numberOfChannels, totalLength, ctx.sampleRate);
+  
+  for (let channel = 0; channel < buffers[0].numberOfChannels; channel++) {
+    const channelData = result.getChannelData(channel);
+    let offset = 0;
+    
+    for (let i = 0; i < buffers.length; i++) {
+      const currentBuffer = buffers[i].getChannelData(channel);
+      
+      if (i === 0) {
+        channelData.set(currentBuffer, 0);
+        offset = currentBuffer.length;
+      } else {
+        const startOffset = offset - fadeSamples;
+        for (let j = 0; j < fadeSamples; j++) {
+          const fadeOutFactor = 1 - (j / fadeSamples);
+          const fadeInFactor = j / fadeSamples;
+          channelData[startOffset + j] = (channelData[startOffset + j] * fadeOutFactor) + (currentBuffer[j] * fadeInFactor);
+        }
+        channelData.set(currentBuffer.subarray(fadeSamples), offset);
+        offset += (currentBuffer.length - fadeSamples);
+      }
+    }
+  }
+  return result;
+}
+
 export async function decodePcmData(
   data: Uint8Array,
   ctx: AudioContext,
-  sampleRate: number = 24000,
+  sourceSampleRate: number = 24000,
   numChannels: number = 1,
 ): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
+  if (data.byteLength < 2) {
+    return ctx.createBuffer(numChannels, 1, sourceSampleRate);
+  }
+  const safeLength = Math.floor(data.byteLength / 2) * 2;
+  const dataView = new DataView(data.buffer, data.byteOffset, safeLength);
+  const frameCount = safeLength / (2 * numChannels);
+  
+  const sourceBuffer = ctx.createBuffer(numChannels, frameCount, sourceSampleRate);
   for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
+    const channelData = sourceBuffer.getChannelData(channel);
     for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+      const sample = dataView.getInt16(i * 2 * numChannels + channel * 2, true);
+      channelData[i] = sample / 32768.0;
     }
   }
-  return buffer;
+
+  const targetRate = ctx.sampleRate || 48000;
+  const offlineCtx = new OfflineAudioContext(
+    numChannels,
+    Math.ceil(frameCount * (targetRate / sourceSampleRate)),
+    targetRate
+  );
+  const sourceNode = offlineCtx.createBufferSource();
+  sourceNode.buffer = sourceBuffer;
+  sourceNode.connect(offlineCtx.destination);
+  sourceNode.start(0);
+  return await offlineCtx.startRendering();
 }
 
-/**
- * Robustly decodes audio, strictly defaulting to PCM for Gemini API outputs (Live/TTS)
- * which are raw PCM data and lack standard file headers.
- */
-export async function robustDecodeAudio(
-  data: Uint8Array,
-  ctx: AudioContext
-): Promise<AudioBuffer> {
-  // Gemini API outputs are raw PCM; always use the specific PCM decoding logic
+export async function robustDecodeAudio(data: Uint8Array, ctx: AudioContext): Promise<AudioBuffer> {
   return decodePcmData(data, ctx, 24000, 1);
 }
-
-// Deprecated alias for backward compatibility if needed, but prefer robustDecodeAudio or decodePcmData
-export const decodeAudioData = decodePcmData;
 
 export function createPcmBlob(data: Float32Array): { data: string; mimeType: string } {
   const l = data.length;
   const int16 = new Int16Array(l);
   for (let i = 0; i < l; i++) {
-    // Clamp values to [-1, 1] before converting to PCM16 to avoid overflow noise
     const s = Math.max(-1, Math.min(1, data[i]));
     int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
   }
+  const bytes = new Uint8Array(int16.buffer, int16.byteOffset, int16.byteLength);
   return {
-    data: encodeBase64(new Uint8Array(int16.buffer)),
+    data: encodeBase64(bytes),
     mimeType: 'audio/pcm;rate=16000',
   };
 }
 
-/**
- * Encodes an AudioBuffer to a WAV Blob.
- */
 export function audioBufferToWav(buffer: AudioBuffer): Blob {
-  const numOfChan = buffer.numberOfChannels;
-  const length = buffer.length * numOfChan * 2 + 44;
-  const bufferArr = new ArrayBuffer(length);
-  const view = new DataView(bufferArr);
-  const channels = [];
-  let i;
-  let sample;
-  let offset = 0;
-  let pos = 0;
-
-  // write WAVE header
-  setUint32(0x46464952); // "RIFF"
-  setUint32(length - 8); // file length - 8
-  setUint32(0x45564157); // "WAVE"
-
-  setUint32(0x20746d66); // "fmt " chunk
-  setUint32(16); // length = 16
-  setUint16(1); // PCM (uncompressed)
-  setUint16(numOfChan);
-  setUint32(buffer.sampleRate);
-  setUint32(buffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
-  setUint16(numOfChan * 2); // block-align
-  setUint16(16); // 16-bit (hardcoded in this simple encoder)
-
-  setUint32(0x61746164); // "data" - chunk
-  setUint32(length - pos - 4); // chunk length
-
-  // write interleaved data
-  for (i = 0; i < buffer.numberOfChannels; i++)
-    channels.push(buffer.getChannelData(i));
-
-  while (pos < buffer.length) {
-    for (i = 0; i < numOfChan; i++) {
-      // clamp
-      sample = Math.max(-1, Math.min(1, channels[i][pos])); 
-      // scale to 16-bit signed int
-      sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0; 
-      view.setInt16(44 + offset, sample, true);
-      offset += 2;
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+  
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  
+  const dataLength = buffer.length * blockAlign;
+  const bufferLength = 44 + dataLength;
+  
+  const arrayBuffer = new ArrayBuffer(bufferLength);
+  const view = new DataView(arrayBuffer);
+  
+  const writeString = (offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
     }
-    pos++;
+  };
+  
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataLength, true);
+  
+  const offset = 44;
+  const channelData = [];
+  for (let i = 0; i < numChannels; i++) {
+    channelData.push(buffer.getChannelData(i));
   }
-
-  // helper
-  function setUint16(data: any) {
-    view.setUint16(pos, data, true);
-    pos += 2;
+  
+  let index = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let channel = 0; channel < numChannels; channel++) {
+      const sample = Math.max(-1, Math.min(1, channelData[channel][i]));
+      view.setInt16(offset + index, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      index += 2;
+    }
   }
-  function setUint32(data: any) {
-    view.setUint32(pos, data, true);
-    pos += 4;
-  }
-
-  return new Blob([bufferArr], { type: 'audio/wav' });
+  
+  return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
